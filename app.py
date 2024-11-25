@@ -135,7 +135,7 @@ class HyperbolicChessAgent:
         self.board = chess.Board()
         logger.info("[Agent] Chess components initialized.")
 
-    def generate_move(self, temperature=0.8, top_k=50) -> str:
+    def generate_move(self, temperature=0.8, top_k=50, epsilon=0.1) -> str:
         logger.info("[Agent] Generating move...")
         board_embedding = self.hyperbolic_embedding(self.board).to(self.device)
         
@@ -145,12 +145,19 @@ class HyperbolicChessAgent:
         legal_moves = list(self.board.legal_moves)
         move_uci_list = [move.uci() for move in legal_moves]
         
+        # Exploration: epsilon-greedy for stochastic move selection
+        if np.random.rand() < epsilon:
+            fallback_move = np.random.choice(move_uci_list)
+            logger.info(f"[Agent] Exploration triggered. Random move selected: {fallback_move}")
+            return fallback_move
+        
         prompt = f"Chess board state: {self.board.fen()}\n"
         prompt += "Possible moves: " + ", ".join(move_uci_list) + "\n"
         
         # More explicit handling of historical context
         if len(historical_moves) > 0:
-            prompt += f"Historical context: {len(historical_moves)} previous moves considered.\n"
+            historical_moves_str = ', '.join([str(move.cpu().numpy()) for move in historical_moves])
+            prompt += f"Historical context: {len(historical_moves)} previous moves considered: {historical_moves_str}\n"
         
         prompt += "Choose the best move (in UCI format):"
         logger.debug(f"[Agent] Prompt:\n{prompt}")
@@ -215,8 +222,7 @@ class HyperbolicChessAgent:
             # Update memory with the new board state
             with torch.no_grad():
                 move_embedding = self.hyperbolic_embedding(self.board)
-                pooled_embedding = move_embedding.mean(dim=0)  # Mean pooling
-                self.memory_module.store_move(pooled_embedding)
+                self.memory_module.store_move(move_embedding)
             move_count += 1
             logger.info(f"[Game] Current Board:\n{self.board}")
 
